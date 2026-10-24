@@ -1,0 +1,31 @@
+name: BikeDash
+options:
+  bundleIdPrefix: com.bikedash
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  BikeDash:
+    type: application
+    platform: iOS
+    sources: [BikeDash]
+    info:
+      path: BikeDash/Info.plist
+      properties:
+        CFBundleDisplayName: Bike Dash
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIBackgroundModes: [location, bluetooth-central]
+        NSLocationWhenInUseUsageDescription: "Bike Dash uses your location to give turn-by-turn directions on your bike dashboard."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Bike Dash keeps guiding you while the phone is locked."
+        NSBluetoothAlwaysUsageDescription: "Bike Dash sends directions to your bike dashboard over Bluetooth."
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bikedash.app
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGN_IDENTITY: ""
