@@ -28,10 +28,17 @@ struct ContentView: View {
                         Text(nav.destination?.name ?? "Destination")
                             .font(.headline)
                             .foregroundStyle(.secondary)
-                        Text(nav.distanceText)
-                            .font(.system(size: 48, weight: .bold))
+                        HStack(spacing: 14) {
+                            Image(systemName: Navigator.arrowSymbols[min(max(nav.arrowCode, 0), 9)])
+                                .font(.system(size: 44, weight: .bold))
+                                .foregroundStyle(.orange)
+                            Text(nav.distanceText)
+                                .font(.system(size: 48, weight: .bold))
+                        }
                         Text(nav.instruction)
                             .font(.title3)
+                        Text("Board arrow: \(Navigator.arrowNames[min(max(nav.arrowCode, 0), 9)])")
+                            .font(.footnote).foregroundStyle(.secondary)
                         if !nav.etaText.isEmpty {
                             Text("ETA \(nav.etaText)  ·  \(nav.remainingText)")
                                 .foregroundStyle(.secondary)

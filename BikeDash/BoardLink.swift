@@ -106,12 +106,34 @@ final class BoardLink: NSObject, ObservableObject, CBCentralManagerDelegate, CBP
 
     // MARK: Sending
 
+    /// Builds the board packet and shortens only the text fields if Bluetooth can't carry it all,
+    /// so the arrow and the numbers always arrive intact.
+    func sendNav(code: Int, meters: Int, instruction: String, street: String,
+                 eta: String, remainingM: Int, remainingMin: Int) {
+        func pack(_ ins: String, _ st: String) -> String {
+            [String(code), String(meters), ins, st, eta, String(remainingM), String(remainingMin)].joined(separator: "|")
+        }
+        var ins = instruction, st = street
+        let maxLen = board.map { $0.maximumWriteValueLength(for: .withoutResponse) } ?? 180
+        while pack(ins, st).utf8.count > maxLen && (!ins.isEmpty || !st.isEmpty) {
+            if ins.count >= st.count { ins = String(ins.dropLast()) } else { st = String(st.dropLast()) }
+        }
+        send(pack(ins, st))
+    }
+
     func send(_ text: String) {
         lastPayload = text
         guard let p = board, let ch = navChar, p.state == .connected else { return }
+        guard p.canSendWriteWithoutResponse else { pending = true; return }   // radio busy: send when ready
+        pending = false
         var data = Data(text.utf8)
         let maxLen = p.maximumWriteValueLength(for: .withoutResponse)
         if data.count > maxLen { data = data.prefix(maxLen) }
         p.writeValue(data, for: ch, type: .withoutResponse)
+    }
+
+    private var pending = false
+    func peripheralIsReady(toSendWriteWithoutResponse p: CBPeripheral) {
+        if pending, let last = lastPayload { send(last) }
     }
 }

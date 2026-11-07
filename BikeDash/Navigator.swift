@@ -12,6 +12,7 @@ final class Navigator: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var etaText = ""
     @Published var remainingText = ""
     @Published var message = ""
+    @Published var arrowCode = 0          // what was last sent to the board (shown in the app too)
 
     let link: BoardLink
     private let lm = CLLocationManager()
@@ -81,9 +82,16 @@ final class Navigator: NSObject, ObservableObject, CLLocationManagerDelegate {
         link.send("X")
     }
 
+    private var testCode = 1
+    /// Each tap sends the next arrow (left, right, slight, sharp, U-turn, roundabout, arrive, straight)
+    /// so you can check that every arrow shows on the board.
     func sendTest() {
-        link.send("2|250|Turn right onto Test Road|Test Road|10:58|12400|16")
-        message = "Test sent - the board should show a right turn"
+        let c = testCode
+        testCode = (testCode + 1) % 10
+        arrowCode = c
+        link.sendNav(code: c, meters: 250, instruction: "Test: \(Navigator.arrowNames[c])", street: "Test Road",
+                     eta: "10:58", remainingM: 12400, remainingMin: 16)
+        message = "Test sent: \(Navigator.arrowNames[c]) - tap again for the next arrow"
     }
 
     private func calculateRoute(from loc: CLLocation?) {
@@ -200,7 +208,8 @@ final class Navigator: NSObject, ObservableObject, CLLocationManagerDelegate {
             let t = steps[stepIndex + 1].instructions
             nextText = t.isEmpty ? "Continue" : t
         }
-        let code = isLast ? 9 : Navigator.code(for: nextText)
+        let code = isLast ? 9 : Navigator.maneuver(text: nextText, from: steps[stepIndex], to: steps[stepIndex + 1])
+        arrowCode = code
         let toTurn = max(0, bestRemain)
 
         var remaining = toTurn
@@ -227,16 +236,9 @@ final class Navigator: NSObject, ObservableObject, CLLocationManagerDelegate {
         if stepIndex != lastSentStep || Date().timeIntervalSince(lastSend) >= 1 {
             lastSend = Date()
             lastSentStep = stepIndex
-            let packet = [
-                String(code),
-                String(Int(toTurn)),
-                Navigator.clean(nextText, 80),
-                Navigator.clean(Navigator.street(from: nextText), 40),
-                etaString,
-                String(Int(remaining)),
-                String(minutesLeft)
-            ].joined(separator: "|")
-            link.send(packet)
+            link.sendNav(code: code, meters: Int(toTurn), instruction: Navigator.clean(nextText, 80),
+                         street: Navigator.clean(Navigator.street(from: nextText), 40),
+                         eta: etaString, remainingM: Int(remaining), remainingMin: minutesLeft)
         }
 
         // Stop automatically 20 s after arriving
@@ -262,7 +264,60 @@ final class Navigator: NSObject, ObservableObject, CLLocationManagerDelegate {
         return String(noPipes.prefix(maxLen))
     }
 
-    /// Board arrow code from Apple's instruction text (English)
+    /// Board arrow for the turn between two steps.
+    /// The direction comes from the road geometry (works in any language and for any wording);
+    /// the text is only used for things geometry can't tell: roundabouts, "keep left/right", arriving.
+    static func maneuver(text: String, from a: MKRoute.Step, to b: MKRoute.Step) -> Int {
+        let t = text.lowercased()
+        if t.contains("arrive") || t.contains("destination") { return 9 }
+        if t.contains("roundabout") || t.contains("traffic circle") || t.contains("rotary") { return 8 }
+        guard let turn = turnAngle(from: a, to: b) else { return code(for: text) }
+        let mag = abs(turn), right = turn > 0
+        if t.contains("u-turn") || t.contains("u turn") || mag > 160 { return 7 }
+        if mag < 20 {                                       // nearly straight: a fork/keep or just continue
+            if t.contains("keep left") || t.contains("bear left") || t.contains("slight left") { return 3 }
+            if t.contains("keep right") || t.contains("bear right") || t.contains("slight right") { return 4 }
+            return 0
+        }
+        if mag < 50 { return right ? 4 : 3 }                // slight
+        if mag < 130 { return right ? 2 : 1 }               // normal turn
+        return right ? 6 : 5                                // sharp
+    }
+
+    /// Signed turn angle in degrees (+ = right) where step a ends and step b starts.
+    static func turnAngle(from a: MKRoute.Step, to b: MKRoute.Step) -> Double? {
+        guard let inB = bearing(a.polyline, fromEnd: true), let outB = bearing(b.polyline, fromEnd: false) else { return nil }
+        var d = outB - inB
+        while d > 180 { d -= 360 }
+        while d <= -180 { d += 360 }
+        return d
+    }
+
+    /// Direction of travel over the last (or first) ~25 m of a polyline, in degrees clockwise from north.
+    static func bearing(_ line: MKPolyline, fromEnd: Bool) -> Double? {
+        let n = line.pointCount
+        guard n >= 2 else { return nil }
+        let pts = line.points()
+        let want = 25.0                                                 // MKMapPoint.distance(to:) is in metres
+        var i0: Int, i1: Int
+        if fromEnd {
+            i1 = n - 1; i0 = n - 2
+            while i0 > 0 && pts[i1].distance(to: pts[i0]) < want { i0 -= 1 }
+        } else {
+            i0 = 0; i1 = 1
+            while i1 < n - 1 && pts[i0].distance(to: pts[i1]) < want { i1 += 1 }
+        }
+        let dx = pts[i1].x - pts[i0].x, dy = pts[i1].y - pts[i0].y      // map points: x east, y south
+        if abs(dx) + abs(dy) < 1e-9 { return nil }
+        return atan2(dx, -dy) * 180 / .pi
+    }
+
+    static let arrowSymbols = ["arrow.up", "arrow.turn.up.left", "arrow.turn.up.right", "arrow.up.left", "arrow.up.right",
+                               "arrow.down.left", "arrow.down.right", "arrow.uturn.down", "arrow.triangle.2.circlepath", "flag.checkered"]
+    static let arrowNames = ["Straight", "Left", "Right", "Slight left", "Slight right",
+                             "Sharp left", "Sharp right", "U-turn", "Roundabout", "Arrive"]
+
+    /// Fallback: board arrow code from Apple's instruction text (English)
     static func code(for s: String) -> Int {
         let t = s.lowercased()
         if t.contains("arrive") || t.contains("destination") { return 9 }
